@@ -5,9 +5,8 @@ from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
 
-from neo4j import GraphDatabase
-
 from app.core.config import get_settings
+from neo4j import GraphDatabase
 
 
 @dataclass
@@ -29,7 +28,9 @@ def run_real_ingest(
     source_url: str | None = None,
     source_path: str | None = None,
 ) -> int:
-    raw_rows = extract_rows(source_format=source_format, source_url=source_url, source_path=source_path)
+    raw_rows = extract_rows(
+        source_format=source_format, source_url=source_url, source_path=source_path
+    )
     normalized = transform_rows(raw_rows=raw_rows, source_name=source_name)
     if not normalized:
         return 0
@@ -37,7 +38,9 @@ def run_real_ingest(
     return len(normalized)
 
 
-def extract_rows(source_format: str, source_url: str | None, source_path: str | None) -> list[dict[str, Any]]:
+def extract_rows(
+    source_format: str, source_url: str | None, source_path: str | None
+) -> list[dict[str, Any]]:
     if source_url:
         raw_text = _read_text_from_url(source_url)
     elif source_path:
@@ -65,18 +68,26 @@ def extract_rows(source_format: str, source_url: str | None, source_path: str | 
     raise ValueError("Unsupported source_format. Use json or csv.")
 
 
-def transform_rows(raw_rows: list[dict[str, Any]], source_name: str) -> list[NormalizedOrgRecord]:
+def transform_rows(
+    raw_rows: list[dict[str, Any]], source_name: str
+) -> list[NormalizedOrgRecord]:
     out: list[NormalizedOrgRecord] = []
     for row in raw_rows:
         name = _pick_first(row, ["name", "organization_name", "org_name", "title"])
         if not name:
             continue
 
-        district = _pick_first(row, ["district", "adm_area", "area", "rayon"]) or "Не указан"
+        district = (
+            _pick_first(row, ["district", "adm_area", "area", "rayon"]) or "Не указан"
+        )
         city = _pick_first(row, ["city"]) or "Москва"
-        address = _pick_first(row, ["address", "full_address", "location"]) or "Не указан"
+        address = (
+            _pick_first(row, ["address", "full_address", "location"]) or "Не указан"
+        )
         category = _pick_first(row, ["category", "type", "rubric"]) or "Объект"
-        rec_id = _pick_first(row, ["id", "global_id", "uid"]) or _stable_id(name, address, district)
+        rec_id = _pick_first(row, ["id", "global_id", "uid"]) or _stable_id(
+            name, address, district
+        )
         lat = _to_float(_pick_first(row, ["lat", "latitude", "geo_lat"]))
         lon = _to_float(_pick_first(row, ["lon", "longitude", "geo_lon"]))
 

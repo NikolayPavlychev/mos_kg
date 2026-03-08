@@ -4,7 +4,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
 
     app_host: str = "0.0.0.0"
     app_port: int = 8000
@@ -12,6 +14,7 @@ class Settings(BaseSettings):
     app_cypher_timeout_seconds: int = 10
     app_cypher_max_rows: int = 100
     app_ingest_default_source_url: str | None = None
+    app_overpass_api_url: str = "https://overpass-api.de/api/interpreter"
 
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_user: str = "neo4j"

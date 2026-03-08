@@ -14,14 +14,17 @@ def run_schema_bootstrap() -> None:
         "CREATE CONSTRAINT city_name_unique IF NOT EXISTS FOR (c:City) REQUIRE c.name IS UNIQUE",
         "CREATE CONSTRAINT district_name_unique IF NOT EXISTS FOR (d:District) REQUIRE d.name IS UNIQUE",
         "CREATE CONSTRAINT metro_station_name_unique IF NOT EXISTS FOR (m:MetroStation) REQUIRE m.name IS UNIQUE",
+        "CREATE CONSTRAINT street_id_unique IF NOT EXISTS FOR (s:Street) REQUIRE s.id IS UNIQUE",
         "CREATE CONSTRAINT category_name_unique IF NOT EXISTS FOR (c:Category) REQUIRE c.name IS UNIQUE",
         "CREATE CONSTRAINT organization_id_unique IF NOT EXISTS FOR (o:Organization) REQUIRE o.id IS UNIQUE",
         "CREATE CONSTRAINT place_id_unique IF NOT EXISTS FOR (p:Place) REQUIRE p.id IS UNIQUE",
-        "CREATE CONSTRAINT address_full_address_unique IF NOT EXISTS FOR (a:Address) REQUIRE a.full_address IS UNIQUE",
+        "CREATE CONSTRAINT address_id_unique IF NOT EXISTS FOR (a:Address) REQUIRE a.id IS UNIQUE",
         "CREATE INDEX district_name_idx IF NOT EXISTS FOR (d:District) ON (d.name)",
         "CREATE INDEX metro_station_name_idx IF NOT EXISTS FOR (m:MetroStation) ON (m.name)",
+        "CREATE INDEX street_name_idx IF NOT EXISTS FOR (s:Street) ON (s.name)",
         "CREATE INDEX organization_name_idx IF NOT EXISTS FOR (o:Organization) ON (o.name)",
         "CREATE INDEX category_name_idx IF NOT EXISTS FOR (c:Category) ON (c.name)",
+        "CREATE INDEX address_full_address_idx IF NOT EXISTS FOR (a:Address) ON (a.full_address)",
     ]
 
     with driver.session() as session:

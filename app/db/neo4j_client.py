@@ -1,7 +1,7 @@
-from neo4j import GraphDatabase
 from neo4j.exceptions import Neo4jError
 
 from app.core.config import get_settings
+from neo4j import GraphDatabase
 
 
 class Neo4jClient:
@@ -15,7 +15,9 @@ class Neo4jClient:
     def close(self) -> None:
         self._driver.close()
 
-    def run_read(self, query: str, params: dict | None = None, timeout_s: int = 10) -> list[dict]:
+    def run_read(
+        self, query: str, params: dict | None = None, timeout_s: int = 10
+    ) -> list[dict]:
         def _tx(tx):
             result = tx.run(query, params or {}, timeout=timeout_s)
             return [record.data() for record in result]

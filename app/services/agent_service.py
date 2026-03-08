@@ -17,12 +17,16 @@ class AgentService:
 
     def question_to_cypher(self, question: str, max_rows: int) -> tuple[str, str]:
         if self._client is not None:
-            generated = self._question_to_cypher_llm(question=question, max_rows=max_rows)
+            generated = self._question_to_cypher_llm(
+                question=question, max_rows=max_rows
+            )
             if generated is not None:
                 return generated
         return self._question_to_cypher_fallback(question=question, max_rows=max_rows)
 
-    def _question_to_cypher_llm(self, question: str, max_rows: int) -> tuple[str, str] | None:
+    def _question_to_cypher_llm(
+        self, question: str, max_rows: int
+    ) -> tuple[str, str] | None:
         prompt = f"""
 You are a Cypher generator for a Moscow city knowledge graph in Neo4j.
 
@@ -71,12 +75,16 @@ User question:
             text = response.output_text.strip()
             payload = json.loads(text)
             cypher = payload["cypher"].strip()
-            explanation = payload.get("explanation", "Сформирован запрос по вопросу пользователя.")
+            explanation = payload.get(
+                "explanation", "Сформирован запрос по вопросу пользователя."
+            )
             return cypher, explanation
         except Exception:
             return None
 
-    def _question_to_cypher_fallback(self, question: str, max_rows: int) -> tuple[str, str]:
+    def _question_to_cypher_fallback(
+        self, question: str, max_rows: int
+    ) -> tuple[str, str]:
         q = question.lower()
 
         if "район" in q:

@@ -88,6 +88,7 @@ def test_ingest_run_real_source(monkeypatch) -> None:
     response = client.post(
         "/api/ingest/run",
         json={
+            "source_kind": "generic",
             "source_url": "https://example.com/data.json",
             "source_format": "json",
             "source_name": "test_source",
@@ -117,6 +118,7 @@ def test_ingest_run_fallback_to_sample(monkeypatch) -> None:
     response = client.post(
         "/api/ingest/run",
         json={
+            "source_kind": "generic",
             "source_format": "json",
             "source_name": "test_source",
             "include_sample_if_empty": True,
@@ -126,3 +128,96 @@ def test_ingest_run_fallback_to_sample(monkeypatch) -> None:
     payload = response.json()
     assert payload["loaded_rows"] == 0
     assert state["sample_called"] is True
+
+
+def test_ingest_run_overpass(monkeypatch) -> None:
+    from app.api.routes import ingest
+
+    monkeypatch.setattr(ingest, "run_schema_bootstrap", lambda: None)
+    monkeypatch.setattr(
+        ingest,
+        "run_overpass_ingest",
+        lambda source_name, mode="both", max_elements=5000: 12,
+    )
+    monkeypatch.setattr(ingest, "run_sample_ingest", lambda: None)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/ingest/run",
+        json={
+            "source_kind": "overpass",
+            "source_name": "overpass_moscow",
+            "overpass_mode": "both",
+            "overpass_max_elements": 1200,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["loaded_rows"] == 12
+    assert payload["status"] == "ok"
+
+
+def test_ingest_overpass_endpoint_with_preset(monkeypatch) -> None:
+    from app.api.routes import ingest
+
+    monkeypatch.setattr(ingest, "run_schema_bootstrap", lambda: None)
+    monkeypatch.setattr(
+        ingest,
+        "run_overpass_ingest",
+        lambda source_name, mode="both", max_elements=5000: 20 if mode == "streets" else 0,
+    )
+    monkeypatch.setattr(ingest, "run_sample_ingest", lambda: None)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/ingest/overpass",
+        json={
+            "preset": "streets",
+            "source_name": "overpass_moscow",
+            "max_elements": 1500,
+            "include_sample_if_empty": False,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["loaded_rows"] == 20
+    assert payload["status"] == "ok"
+
+
+def test_ingest_overpass_endpoint_invalid_preset() -> None:
+    client = TestClient(app)
+    response = client.post(
+        "/api/ingest/overpass",
+        json={
+            "preset": "invalid",
+            "source_name": "overpass_moscow",
+            "max_elements": 1500,
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_ingest_overpass_endpoint_returns_504_on_overpass_timeout(monkeypatch) -> None:
+    from app.api.routes import ingest
+    from scripts.etl.overpass_ingest import OverpassFetchError
+
+    monkeypatch.setattr(ingest, "run_schema_bootstrap", lambda: None)
+    monkeypatch.setattr(
+        ingest,
+        "run_overpass_ingest",
+        lambda source_name, mode="both", max_elements=5000: (_ for _ in ()).throw(
+            OverpassFetchError("Overpass API request timed out after retries.")
+        ),
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/ingest/overpass",
+        json={
+            "preset": "both",
+            "source_name": "overpass_moscow",
+            "max_elements": 1000,
+            "include_sample_if_empty": False,
+        },
+    )
+    assert response.status_code == 504
