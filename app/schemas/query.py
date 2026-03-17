@@ -13,11 +13,3 @@ class CypherQueryResponse(BaseModel):
 
 class NLQueryRequest(BaseModel):
     question: str = Field(..., min_length=2)
-
-
-class NLQueryResponse(BaseModel):
-    question: str
-    cypher: str
-    rows: list[dict]
-    row_count: int
-    explanation: str

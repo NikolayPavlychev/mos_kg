@@ -13,8 +13,9 @@ class Settings(BaseSettings):
     app_env: str = "dev"
     app_cypher_timeout_seconds: int = 10
     app_cypher_max_rows: int = 100
+    app_schema_cache_ttl_seconds: int = 120
     app_ingest_default_source_url: str | None = None
-    app_overpass_api_url: str = "https://overpass-api.de/api/interpreter"
+    app_overpass_api_url: str = "https://overpass.kumi.systems/api/interpreter"
 
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_user: str = "neo4j"
@@ -22,6 +23,10 @@ class Settings(BaseSettings):
 
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"
+    llm_provider: str = "openai"
+    deepseek_api_key: str | None = None
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_model: str = "deepseek-chat"
 
 
 @lru_cache

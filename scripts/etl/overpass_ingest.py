@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from urllib.error import URLError
 from urllib.parse import urlencode
@@ -25,6 +26,9 @@ class OverpassFetchError(RuntimeError):
     """Raised when Overpass endpoint is unavailable or timed out."""
 
 
+ProgressCallback = Callable[[str, str, int], None]
+
+
 @dataclass
 class StreetRecord:
     osm_id: str
@@ -46,19 +50,34 @@ class HouseRecord:
 
 
 def run_overpass_ingest(
-    source_name: str, mode: str = "both", max_elements: int = 5000
+    source_name: str,
+    mode: str = "both",
+    max_elements: int = 5000,
+    progress_callback: ProgressCallback | None = None,
 ) -> int:
     mode_norm = mode.lower().strip()
     if mode_norm not in {"streets", "houses", "both"}:
         raise ValueError("overpass_mode must be one of: streets, houses, both")
 
-    overpass_data = _fetch_overpass_elements(mode=mode_norm, max_elements=max_elements)
+    _emit_progress(progress_callback, "fetch", "Fetching Overpass elements.", 1)
+    overpass_data = _fetch_overpass_elements(
+        mode=mode_norm,
+        max_elements=max_elements,
+        progress_callback=progress_callback,
+    )
+    _emit_progress(progress_callback, "transform", "Transforming Overpass elements.", 2)
     streets, houses = _transform_elements(overpass_data, source_name=source_name)
+    _emit_progress(progress_callback, "load", "Loading transformed rows to Neo4j.", 3)
     _load_to_neo4j(streets=streets, houses=houses)
+    _emit_progress(progress_callback, "load", "Neo4j load completed.", 4)
     return len(streets) + len(houses)
 
 
-def _fetch_overpass_elements(mode: str, max_elements: int) -> dict:
+def _fetch_overpass_elements(
+    mode: str,
+    max_elements: int,
+    progress_callback: ProgressCallback | None = None,
+) -> dict:
     elements: list[dict] = []
 
     if mode in {"streets", "both"}:
@@ -80,7 +99,7 @@ def _fetch_overpass_elements(mode: str, max_elements: int) -> dict:
         house_elements: list[dict] = []
         failed_tiles = 0
 
-        for south, west, north, east in MOSCOW_HOUSE_BBOX_TILES:
+        for idx, (south, west, north, east) in enumerate(MOSCOW_HOUSE_BBOX_TILES, start=1):
             bbox = f"{south},{west},{north},{east}"
             houses_query = f"""
             [out:json][timeout:60];
@@ -94,8 +113,20 @@ def _fetch_overpass_elements(mode: str, max_elements: int) -> dict:
                 tile_elements = houses_data.get("elements", [])
                 if isinstance(tile_elements, list):
                     house_elements.extend(tile_elements)
+                _emit_progress(
+                    progress_callback,
+                    "fetch",
+                    f"Houses tile {idx}/{len(MOSCOW_HOUSE_BBOX_TILES)} fetched.",
+                    1,
+                )
             except OverpassFetchError:
                 failed_tiles += 1
+                _emit_progress(
+                    progress_callback,
+                    "fetch",
+                    f"Houses tile {idx}/{len(MOSCOW_HOUSE_BBOX_TILES)} failed; continuing.",
+                    1,
+                )
                 continue
 
         if failed_tiles == len(MOSCOW_HOUSE_BBOX_TILES):
@@ -140,6 +171,14 @@ def _post_overpass_query(url: str, query: str) -> dict:
     )
     with urlopen(request, timeout=120) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def _emit_progress(
+    progress_callback: ProgressCallback | None, stage: str, message: str, completed_steps: int
+) -> None:
+    if progress_callback is None:
+        return
+    progress_callback(stage, message, completed_steps)
 
 
 def _transform_elements(
