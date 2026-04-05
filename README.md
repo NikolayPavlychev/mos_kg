@@ -13,7 +13,7 @@ MVP implementation for a Moscow knowledge graph on Neo4j with FastAPI endpoints 
    - `source .venv/bin/activate`
    - `pip install -r requirements.txt`
 4. Start API:
-   - `uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`
+   - `uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --no-access-log`
 5. Start Streamlit UI (optional):
    - `streamlit run streamlit_app.py`
 

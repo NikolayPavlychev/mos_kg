@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from threading import Lock
 from typing import Literal
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 JobStatus = Literal["queued", "running", "succeeded", "failed"]
 
@@ -46,6 +49,16 @@ class IngestJobService:
         )
         with self._lock:
             self._jobs[job_id] = state
+
+        logger.info(
+            "Ingest job created",
+            extra={
+                "job_id": job_id,
+                "source_name": source_name,
+                "mode": mode,
+                "max_elements": max_elements,
+            },
+        )
         return job_id
 
     def get_job(self, job_id: str) -> IngestJobState | None:
@@ -85,6 +98,17 @@ class IngestJobService:
                 "total_steps": total_steps,
             }
 
+        logger.info(
+            "Ingest job progress updated",
+            extra={
+                "job_id": job_id,
+                "stage": stage,
+                "message": message,
+                "completed_steps": completed_steps,
+                "total_steps": total_steps,
+            },
+        )
+
     def mark_succeeded(self, job_id: str, loaded_rows: int) -> None:
         with self._lock:
             job = self._jobs.get(job_id)
@@ -100,6 +124,19 @@ class IngestJobService:
                 "completed_steps": 4,
                 "total_steps": 4,
             }
+
+        logger.info(
+            "Ingest job succeeded",
+            extra={
+                "job_id": job_id,
+                "loaded_rows": loaded_rows,
+                "duration_seconds": (
+                    (job.finished_at - job.started_at).total_seconds()
+                    if job.started_at
+                    else None
+                ),
+            },
+        )
 
     def mark_failed(self, job_id: str, error: str) -> None:
         with self._lock:
@@ -118,6 +155,20 @@ class IngestJobService:
                 ),
                 "total_steps": int(job.progress.get("total_steps", 4)),
             }
+
+        logger.error(
+            "Ingest job failed",
+            extra={
+                "job_id": job_id,
+                "error": error,
+                "duration_seconds": (
+                    (job.finished_at - job.started_at).total_seconds()
+                    if job.started_at
+                    else None
+                ),
+            },
+            exc_info=True,
+        )
 
     def _set_status(self, job_id: str, status: JobStatus) -> None:
         with self._lock:

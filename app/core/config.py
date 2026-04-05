@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     deepseek_api_key: str | None = None
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-chat"
+    log_level: str = "INFO"
 
 
 @lru_cache
