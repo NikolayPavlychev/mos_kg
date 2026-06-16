@@ -1,10 +1,13 @@
 import json
+import logging
 import re
 import threading
 import time
 
 from app.core.config import get_settings
 from app.db.neo4j_client import Neo4jClient
+
+logger = logging.getLogger(__name__)
 
 try:
     from openai import OpenAI
@@ -61,12 +64,27 @@ class AgentService:
                 api_key=self._settings.deepseek_api_key,
                 base_url=self._settings.deepseek_base_url,
             )
+            logger.debug(
+                "Initialized LLM provider",
+                extra={
+                    "provider": self._provider,
+                    "has_api_key": bool(self._settings.deepseek_api_key),
+                },
+            )
 
     def question_to_cypher(self, question: str, max_rows: int) -> tuple[str, str]:
         if self._client is None:
             return self._question_to_cypher_fallback(question=question, max_rows=max_rows)
 
         try:
+            logger.info(
+                "Processing question",
+                extra={
+                    "provider": self._provider,
+                    "question": question[:100] + "..." if len(question) > 100 else question,
+                    "max_rows": max_rows,
+                },
+            )
             if self._provider == "deepseek":
                 return self._question_to_cypher_deepseek(
                     question=question, max_rows=max_rows
@@ -108,6 +126,13 @@ class AgentService:
             raise LLMProviderError(f"{provider_name} client is not configured.")
 
         prompt = self._build_prompt(question=question, max_rows=max_rows)
+        logger.debug(
+            "Built LLM prompt",
+            extra={
+                "prompt_length": len(prompt),
+                "question_preview": question[:50],
+            },
+        )
         try:
             response = self._client.chat.completions.create(
                 model=model,
@@ -118,6 +143,14 @@ class AgentService:
                 raise LLMProviderError(f"{provider_name} returned empty content.")
             payload = self._parse_llm_payload(text)
             cypher = payload["cypher"].strip()
+            logger.info(
+                "Generated Cypher query",
+                extra={
+                    "cypher": cypher,
+                    "provider": provider_name,
+                    "model": model,
+                },
+            )
             explanation = payload.get(
                 "explanation", "Сформирован запрос по вопросу пользователя."
             )
@@ -125,6 +158,15 @@ class AgentService:
         except LLMProviderError:
             raise
         except Exception as exc:
+            logger.error(
+                "LLM provider request failed",
+                extra={
+                    "provider": provider_name,
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                },
+                exc_info=True,
+            )
             raise LLMProviderError(f"{provider_name} request failed.") from exc
 
     def _build_prompt(self, question: str, max_rows: int) -> str:
@@ -211,7 +253,12 @@ User question:
             if not relations:
                 relations = DEFAULT_GRAPH_RELATIONS
             return labels, relations
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Failed to fetch graph schema, using defaults",
+                extra={"error": str(exc)},
+                exc_info=True,
+            )
             return DEFAULT_GRAPH_LABELS, DEFAULT_GRAPH_RELATIONS
         finally:
             client.close()
