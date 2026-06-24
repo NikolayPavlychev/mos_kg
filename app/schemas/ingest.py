@@ -29,11 +29,12 @@ class IngestRunRequest(BaseModel):
         default="both",
         description="Overpass mode: streets, houses, or both.",
     )
-    overpass_max_elements: int = Field(
+    overpass_max_elements: int | None = Field(
         default=5000,
-        ge=100,
-        le=50000,
-        description="Hard limit for returned Overpass elements.",
+        description=(
+            "Hard limit for returned Overpass elements. "
+            "Set null to run full ingest with adaptive tile splitting."
+        ),
     )
     include_sample_if_empty: bool = Field(
         default=True,
@@ -56,11 +57,12 @@ class OverpassIngestRequest(BaseModel):
         default="overpass_moscow",
         description="Source name for provenance in graph nodes.",
     )
-    max_elements: int = Field(
+    max_elements: int | None = Field(
         default=5000,
-        ge=100,
-        le=50000,
-        description="Hard limit for returned Overpass elements.",
+        description=(
+            "Hard limit for returned Overpass elements. "
+            "Set null to run full ingest with adaptive tile splitting."
+        ),
     )
     include_sample_if_empty: bool = Field(
         default=True,
@@ -77,11 +79,12 @@ class IngestJobStartRequest(BaseModel):
         default="overpass_moscow",
         description="Source name for provenance in graph nodes.",
     )
-    max_elements: int = Field(
+    max_elements: int | None = Field(
         default=5000,
-        ge=100,
-        le=50000,
-        description="Hard limit for returned Overpass elements.",
+        description=(
+            "Hard limit for returned Overpass elements. "
+            "Set null to run full ingest with adaptive tile splitting."
+        ),
     )
 
 

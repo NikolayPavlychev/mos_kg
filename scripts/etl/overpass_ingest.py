@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -13,6 +14,7 @@ from neo4j import GraphDatabase
 
 RETRY_ATTEMPTS = 3
 RETRY_BACKOFF_SECONDS = 2
+HOUSE_TILE_MAX_SPLIT_DEPTH = 3
 # south, west, north, east (rough split of Moscow bbox into tiles)
 MOSCOW_HOUSE_BBOX_TILES = [
     (55.48, 37.30, 55.65, 37.52),
@@ -49,15 +51,20 @@ class HouseRecord:
     source: str
 
 
+BBox = tuple[float, float, float, float]
+
+
 def run_overpass_ingest(
     source_name: str,
     mode: str = "both",
-    max_elements: int = 5000,
+    max_elements: int | None = 5000,
     progress_callback: ProgressCallback | None = None,
 ) -> int:
     mode_norm = mode.lower().strip()
     if mode_norm not in {"streets", "houses", "both"}:
         raise ValueError("overpass_mode must be one of: streets, houses, both")
+    if max_elements is not None and max_elements < 100:
+        raise ValueError("max_elements must be >= 100 or null for full ingest")
 
     _emit_progress(progress_callback, "fetch", "Fetching Overpass elements.", 1)
     overpass_data = _fetch_overpass_elements(
@@ -75,19 +82,21 @@ def run_overpass_ingest(
 
 def _fetch_overpass_elements(
     mode: str,
-    max_elements: int,
+    max_elements: int | None,
     progress_callback: ProgressCallback | None = None,
 ) -> dict:
     elements: list[dict] = []
 
     if mode in {"streets", "both"}:
+        streets_limit_clause = "" if max_elements is None else f" {max_elements}"
+        streets_timeout = 180 if max_elements is None else 90
         streets_query = f"""
-        [out:json][timeout:90];
+        [out:json][timeout:{streets_timeout}];
         area["name"="Москва"]["boundary"="administrative"]->.searchArea;
         (
           way["highway"]["name"](area.searchArea);
         );
-        out tags center {max_elements};
+        out tags center{streets_limit_clause};
         """
         streets_data = _fetch_query_with_retry(streets_query)
         street_elements = streets_data.get("elements", [])
@@ -95,28 +104,32 @@ def _fetch_overpass_elements(
             elements.extend(street_elements)
 
     if mode in {"houses", "both"}:
-        per_tile_limit = max(100, int(max_elements / len(MOSCOW_HOUSE_BBOX_TILES)))
-        house_elements: list[dict] = []
+        per_tile_limit = (
+            None
+            if max_elements is None
+            else max(100, int(math.ceil(max_elements / len(MOSCOW_HOUSE_BBOX_TILES))))
+        )
+        houses_by_id: dict[str, dict] = {}
         failed_tiles = 0
 
         for idx, (south, west, north, east) in enumerate(MOSCOW_HOUSE_BBOX_TILES, start=1):
-            bbox = f"{south},{west},{north},{east}"
-            houses_query = f"""
-            [out:json][timeout:60];
-            (
-              nwr["addr:housenumber"]({bbox});
-            );
-            out tags center {per_tile_limit};
-            """
+            bbox: BBox = (south, west, north, east)
             try:
-                houses_data = _fetch_query_with_retry(houses_query)
-                tile_elements = houses_data.get("elements", [])
-                if isinstance(tile_elements, list):
-                    house_elements.extend(tile_elements)
+                tile_elements = _fetch_houses_elements_for_bbox(
+                    bbox=bbox,
+                    per_tile_limit=per_tile_limit,
+                )
+                for element in tile_elements:
+                    key = _osm_element_key(element)
+                    if key:
+                        houses_by_id.setdefault(key, element)
                 _emit_progress(
                     progress_callback,
                     "fetch",
-                    f"Houses tile {idx}/{len(MOSCOW_HOUSE_BBOX_TILES)} fetched.",
+                    (
+                        f"Houses tile {idx}/{len(MOSCOW_HOUSE_BBOX_TILES)} fetched "
+                        f"({len(tile_elements)} raw / {len(houses_by_id)} unique)."
+                    ),
                     1,
                 )
             except OverpassFetchError:
@@ -129,14 +142,83 @@ def _fetch_overpass_elements(
                 )
                 continue
 
+            if max_elements is not None and len(houses_by_id) >= max_elements:
+                break
+
         if failed_tiles == len(MOSCOW_HOUSE_BBOX_TILES):
             raise OverpassFetchError(
                 "Overpass houses ingestion failed for all Moscow tiles due to timeout/network errors."
             )
 
-        elements.extend(house_elements[:max_elements])
+        house_elements = list(houses_by_id.values())
+        if max_elements is not None:
+            house_elements = house_elements[:max_elements]
+        elements.extend(house_elements)
 
     return {"elements": elements}
+
+
+def _fetch_houses_elements_for_bbox(
+    bbox: BBox,
+    per_tile_limit: int | None,
+    split_depth: int = 0,
+) -> list[dict]:
+    houses_query = _build_houses_query(bbox=bbox, per_tile_limit=per_tile_limit)
+    try:
+        houses_data = _fetch_query_with_retry(houses_query)
+    except OverpassFetchError as exc:
+        if split_depth >= HOUSE_TILE_MAX_SPLIT_DEPTH:
+            raise exc
+
+        nested_elements: list[dict] = []
+        for child_bbox in _split_bbox(bbox):
+            nested_elements.extend(
+                _fetch_houses_elements_for_bbox(
+                    bbox=child_bbox,
+                    per_tile_limit=per_tile_limit,
+                    split_depth=split_depth + 1,
+                )
+            )
+        return nested_elements
+
+    tile_elements = houses_data.get("elements", [])
+    if not isinstance(tile_elements, list):
+        return []
+    return tile_elements
+
+
+def _build_houses_query(bbox: BBox, per_tile_limit: int | None) -> str:
+    south, west, north, east = bbox
+    bbox_str = f"{south},{west},{north},{east}"
+    timeout_s = 180 if per_tile_limit is None else 90
+    limit_clause = "" if per_tile_limit is None else f" {per_tile_limit}"
+    return f"""
+    [out:json][timeout:{timeout_s}];
+    (
+      nwr["addr:housenumber"]({bbox_str});
+    );
+    out tags center{limit_clause};
+    """
+
+
+def _split_bbox(bbox: BBox) -> list[BBox]:
+    south, west, north, east = bbox
+    mid_lat = (south + north) / 2
+    mid_lon = (west + east) / 2
+    return [
+        (south, west, mid_lat, mid_lon),
+        (south, mid_lon, mid_lat, east),
+        (mid_lat, west, north, mid_lon),
+        (mid_lat, mid_lon, north, east),
+    ]
+
+
+def _osm_element_key(element: dict) -> str | None:
+    raw_id = element.get("id")
+    element_type = element.get("type")
+    if raw_id is None or not element_type:
+        return None
+    return f"{element_type}/{raw_id}"
 
 
 def _fetch_query_with_retry(query: str) -> dict:

@@ -281,6 +281,37 @@ def test_ingest_run_overpass(monkeypatch) -> None:
     assert payload["status"] == "ok"
 
 
+def test_ingest_run_overpass_full_mode_uses_null_max_elements(monkeypatch) -> None:
+    from app.api.routes import ingest
+
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(ingest, "run_schema_bootstrap", lambda: None)
+
+    def _fake_run_overpass_ingest(source_name, mode="both", max_elements=5000):
+        captured["source_name"] = source_name
+        captured["mode"] = mode
+        captured["max_elements"] = max_elements
+        return 77
+
+    monkeypatch.setattr(ingest, "run_overpass_ingest", _fake_run_overpass_ingest)
+    monkeypatch.setattr(ingest, "run_sample_ingest", lambda: None)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/ingest/run",
+        json={
+            "source_kind": "overpass",
+            "source_name": "overpass_moscow",
+            "overpass_mode": "houses",
+            "overpass_max_elements": None,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["loaded_rows"] == 77
+    assert captured["max_elements"] is None
+
+
 def test_ingest_overpass_endpoint_with_preset(monkeypatch) -> None:
     from app.api.routes import ingest
 
@@ -424,3 +455,38 @@ def test_ingest_overpass_job_failed_status(monkeypatch) -> None:
     assert payload["status"] == "failed"
     assert "Overpass mirror timeout" in payload["error"]
     assert payload["finished_at"] is not None
+
+
+def test_ingest_overpass_job_supports_null_max_elements(monkeypatch) -> None:
+    from app.api.routes import ingest
+    from app.services.ingest_job_service import IngestJobService
+
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(ingest, "job_service", IngestJobService())
+    monkeypatch.setattr(ingest, "run_schema_bootstrap", lambda: None)
+
+    def _fake_run_overpass_ingest(
+        source_name, mode="both", max_elements=5000, progress_callback=None
+    ):
+        captured["max_elements"] = max_elements
+        if progress_callback is not None:
+            progress_callback("fetch", "Fetched data for job.", 1)
+            progress_callback("transform", "Transformed data for job.", 2)
+            progress_callback("load", "Loaded data for job.", 3)
+        return 12
+
+    monkeypatch.setattr(ingest, "run_overpass_ingest", _fake_run_overpass_ingest)
+    monkeypatch.setattr(
+        ingest,
+        "_spawn_job_worker",
+        lambda job_id: ingest._run_overpass_ingest_job(job_id),
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/ingest/overpass/job",
+        json={"mode": "houses", "source_name": "overpass_moscow", "max_elements": None},
+    )
+    assert response.status_code == 202
+    assert captured["max_elements"] is None

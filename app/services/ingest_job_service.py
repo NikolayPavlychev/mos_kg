@@ -18,7 +18,7 @@ class IngestJobState:
     job_id: str
     source_name: str
     mode: str
-    max_elements: int
+    max_elements: int | None
     status: JobStatus = "queued"
     progress: dict = field(
         default_factory=lambda: {
@@ -39,7 +39,7 @@ class IngestJobService:
         self._lock = Lock()
         self._jobs: dict[str, IngestJobState] = {}
 
-    def create_job(self, source_name: str, mode: str, max_elements: int) -> str:
+    def create_job(self, source_name: str, mode: str, max_elements: int | None) -> str:
         job_id = str(uuid4())
         state = IngestJobState(
             job_id=job_id,
@@ -103,7 +103,7 @@ class IngestJobService:
             extra={
                 "job_id": job_id,
                 "stage": stage,
-                "message": message,
+                "progress_message": message,
                 "completed_steps": completed_steps,
                 "total_steps": total_steps,
             },

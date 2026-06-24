@@ -105,3 +105,17 @@ curl -sS -X POST "http://localhost:8000/api/query/cypher" \
     "query": "MATCH (s:Street) RETURN count(s) AS streetCount LIMIT 1",
     "params": {}
   }' | jq
+
+
+  ================================
+  Загрузка всех данных через ETL:
+
+curl -sS -X POST "http://localhost:8000/api/ingest/overpass/job" \
+-H "Content-Type: application/json" \
+-d '{
+  "mode": "houses",
+  "source_name": "overpass_moscow",
+  "max_elements": null
+}'
+
+  ================================

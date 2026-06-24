@@ -46,6 +46,8 @@ MVP implementation for a Moscow knowledge graph on Neo4j with FastAPI endpoints 
   - `source_kind=overpass`: fetches streets/houses for Moscow from Overpass API.
 - Overpass ingestion uses retries with backoff; timeout/network failures are returned as `HTTP 504`.
 - Overpass `houses` mode is fetched in bbox tiles across Moscow to reduce timeout risk.
+- Overpass `houses` mode now uses adaptive tile splitting on timeout and deduplicates objects by OSM id across tiles.
+- `max_elements=null` enables full ingest mode (no hard cap) with adaptive splitting.
 - `POST /api/query/cypher` runs in read-only guarded mode (dangerous Cypher keywords are blocked).
 - `POST /api/query/nl` supports `OPENAI` and `DeepSeek` providers via `LLM_PROVIDER`; if provider request fails, endpoint degrades to rule-based fallback.
 
@@ -120,6 +122,18 @@ curl -sS -X POST "http://localhost:8000/api/ingest/overpass/job" \
     "mode": "both",
     "source_name": "overpass_moscow",
     "max_elements": 1000
+  }'
+```
+
+Start full job (no cap on returned elements):
+
+```bash
+curl -sS -X POST "http://localhost:8000/api/ingest/overpass/job" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "mode": "houses",
+    "source_name": "overpass_moscow",
+    "max_elements": null
   }'
 ```
 
